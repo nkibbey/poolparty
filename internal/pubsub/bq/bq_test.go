@@ -132,3 +132,96 @@ func TestEnqueueWhenShutdown(t *testing.T) {
 		t.Errorf("Expected error message containing '%s', got: %s", expectedError, err.Error())
 	}
 }
+
+// Helper function to drain the queue during benchmarks
+func benchmarkConsumerDrain(q queue.Queue, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for {
+		_, err := q.Dequeue(context.Background())
+		if err != nil && strings.Contains(err.Error(), "closed") {
+			return
+		}
+	}
+}
+
+// BenchmarkEnqueueDequeue measures raw throughput with one consumer and one producer.
+func BenchmarkEnqueueDequeue(b *testing.B) {
+	const Capacity = 1000
+	q := bq.NewBQ(Capacity)
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go benchmarkConsumerDrain(q, &wg)
+
+	b.ResetTimer()
+	// b.N is automatically adjusted by the testing framework
+	for i := 0; i < b.N; i++ {
+		msg := queue.Message{ID: i, Body: "benchmark"}
+		if err := q.Enqueue(ctx, msg); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+
+	// Graceful shutdown after benchmark finishes
+	q.Shutdown(context.Background())
+	wg.Wait()
+}
+
+// BenchmarkCompetingConsumers simulates the original use case with N consumers competing for messages.
+func BenchmarkCompetingConsumers(b *testing.B) {
+	const (
+		Capacity     = 100
+		NumConsumers = 4
+	)
+	q := bq.NewBQ(Capacity)
+	ctx := context.Background()
+
+	// Use a WaitGroup to manage the consumer helpers within the benchmark scope
+	var consumerWG sync.WaitGroup
+	for i := 0; i < NumConsumers; i++ {
+		consumerWG.Add(1)
+		go benchmarkConsumerDrain(q, &consumerWG)
+	}
+
+	b.ResetTimer()
+	// This benchmark tests the overhead of the mutex locking/unlocking during high contention
+	for i := 0; i < b.N; i++ {
+		msg := queue.Message{ID: i, Body: "concurrent_benchmark"}
+		if err := q.Enqueue(ctx, msg); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+
+	// Cleanup
+	q.Shutdown(context.Background())
+	consumerWG.Wait()
+}
+
+// BenchmarkChannelThroughput is a baseline using only raw channels,
+// without the overhead of context checks, mutexes, or WaitGroups,
+// purely for comparison with BQ implementation performance.
+func BenchmarkChannelThroughput(b *testing.B) {
+	ch := make(chan queue.Message, 1000)
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	// Consumer goroutine for the baseline test
+	go func() {
+		defer wg.Done()
+		for range ch {
+			// Do nothing, just drain
+		}
+	}()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ch <- queue.Message{ID: i}
+	}
+	b.StopTimer()
+
+	close(ch)
+	wg.Wait()
+}

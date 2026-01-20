@@ -37,6 +37,10 @@ build:
 	go test ./...
 	CGO_ENABLED=0 go build $(BUILD_FLAGS) -o bin ./...
 	
+bench:
+	@go fmt ./...
+	go test ./... -benchmem -bench=. -run=^$$
+
 
 oci: build
 	@echo "$$DOCKERFILE" > Dockerfile
