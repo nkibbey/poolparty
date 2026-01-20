@@ -11,6 +11,11 @@ import (
 	"github.com/nkibbey/poolparty/internal/pubsub/bq"
 )
 
+const (
+	QueueCapacity = 5
+	NumConsumers  = 10
+)
+
 var (
 	PrintVersion = flag.Bool("v", false, "Display build info and exit")
 
@@ -30,38 +35,27 @@ func main() {
 		log.Printf("------BUILD INFO-----\n%s\n-----------------------------------------", buildInfo())
 		return
 	}
-	const QueueCapacity = 5
-	const NumConsumers = 3
 
 	// Root context for the whole application life cycle
 	appCtx, appCancel := context.WithCancel(context.Background())
 	queue := bq.NewBQ(QueueCapacity)
 
-	// Start consumers
 	for i := 1; i <= NumConsumers; i++ {
-		go pubsub.Consumer(i, queue, appCtx)
+		go pubsub.Consumer(i, queue, appCtx, 1*time.Second)
 	}
-
-	// Start publisher
-	go pubsub.Publisher(appCtx, queue)
+	go pubsub.Publisher(appCtx, queue, 30, 10*time.Millisecond)
 
 	// Wait for a bit and then initiate graceful shutdown
-	time.Sleep(2 * time.Second)
+	time.Sleep(5 * time.Second)
 	fmt.Println("\nInitiating graceful shutdown...")
 
 	// Create a context with a timeout for the shutdown process itself
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
-
 	if err := queue.Shutdown(shutdownCtx); err != nil {
 		fmt.Printf("Shutdown error: %v\n", err)
 	}
-	fmt.Println("Shutdown complete. Waiting for all goroutines to finish...")
 
-	// Cancel the application context to signal all consumers to stop their Dequeue calls
+	fmt.Println("Shutdown complete. Cancelling ctx...")
 	appCancel()
-
-	// In a real application, you might use an additional WaitGroup to ensure consumers have exited,
-	// but here the main goroutine will exit after the graceful shutdown logic has completed
-	// and the appCtx is cancelled.
 }
