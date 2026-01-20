@@ -8,6 +8,10 @@ import (
 	"github.com/nkibbey/poolparty/pkg/queue"
 )
 
+const (
+	CLOSED_BQ_ERR = "queue channel closed, no more messages"
+)
+
 // BQ is a Bounded Queue and implements the Queue interface
 type BQ struct {
 	queueChan    chan queue.Message // Main channel for messages
@@ -55,8 +59,11 @@ func (q *BQ) Dequeue(ctx context.Context) (queue.Message, error) {
 		return queue.Message{}, ctx.Err()
 	case msg, ok := <-q.queueChan:
 		if !ok {
-			return queue.Message{}, fmt.Errorf("queue channel closed, no more messages")
+			return queue.Message{}, fmt.Errorf(CLOSED_BQ_ERR)
 		}
+		go func() {
+			q.wg.Done()
+		}()
 		return msg, nil
 	}
 }

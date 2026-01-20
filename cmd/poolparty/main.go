@@ -2,14 +2,34 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/nkibbey/poolparty/internal/pubsub"
 	"github.com/nkibbey/poolparty/internal/pubsub/bq"
 )
 
+var (
+	PrintVersion = flag.Bool("v", false, "Display build info and exit")
+
+	Version   = "devel"
+	GitCommit = "devel"
+	BuildTime = "devel"
+)
+
+// buildInfo provides information about this build
+func buildInfo() string {
+	return fmt.Sprintf("Version: %s\nBuild Time: %s\nGitCommit: %s", Version, BuildTime, GitCommit)
+}
+
 func main() {
+	flag.Parse()
+	if *PrintVersion {
+		log.Printf("------BUILD INFO-----\n%s\n-----------------------------------------", buildInfo())
+		return
+	}
 	const QueueCapacity = 5
 	const NumConsumers = 3
 
